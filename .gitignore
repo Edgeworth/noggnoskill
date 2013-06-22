@@ -1,0 +1,11 @@
+*.project
+*.class
+.classpath
+docs/*.pdf
+bin/
+
+scripts/
+empirical/
+test/
+src/old/
+
