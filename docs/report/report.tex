@@ -1,0 +1,373 @@
+\documentclass[a4paper]{article}
+
+\usepackage[top=2cm,bottom=2cm,left=1cm,right=1cm]{geometry}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{array}
+\usepackage{multicol}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{fancyhdr}
+\usepackage{parskip}
+\usepackage{mathtools}
+\usepackage{algorithm}% http://ctan.org/pkg/algorithms
+\usepackage{algpseudocode}% http://ctan.org/pkg/algorithmicx
+
+\pagestyle{fancy}
+\setlength{\headheight}{15.2pt}
+\setlength{\headsep}{16pt}
+\fancyhf{}
+\fancyhead[L]{\textsc{Lossless Data Compression}}
+\fancyhead[C]{\textsc{CITS2200}}
+\fancyhead[R]{\textsc{E}}
+\fancyfoot[C]{\thepage}
+
+\title{Lossless Data Compression}
+\author{E}
+\date{}
+
+\DeclarePairedDelimiter{\br}{\{}{\}}
+\DeclarePairedDelimiter{\p}{(}{)}
+\DeclarePairedDelimiter{\s}{[}{]}
+
+\newcommand{\AND}{\wedge}
+\newcommand{\OR}{\vee}
+\newcommand{\NOT}{\neg}
+\newcommand{\IMPLIES}{\rightarrow}
+\newcommand{\IFF}{\leftrightarrow}
+
+\begin{document}
+\begin{multicols}{2}
+\section{Introduction}
+The NoGGNoSkill compressor makes use of the Burrows Wheeler transform, the move-to-front transform, and Huffman coding. It runs in linear time and memory, and best on English text files, where it achieves average 30\% compression ratio. It usually does better than gzip and zip, and is almost comparable to bzip2 in compression ratio. It compresses at about 1.5 MB/s and decompresses at about 0.5 MB/s on a standard desktop computer, which is about 10 times slower than most popular compression programs. The main difficulties in the project were understanding and writing a linear time Burrows Wheeler transform, which required a linear time suffix array construction algorithm, and correctly implementing the fine details, such as all the bookkeeping which has to be done to process an arbitrarily large input stream.
+
+\section {Algorithm description}
+NoGGNoSkill consists of four stages in compression and decompression. In compression, we apply a zero compensation transform, Burrows Wheeler transform, move-to-front transform, and finally Huffman compression. Decompression is the reverse of this: Huffman decompression, move-to-front inverse transform, Burrows Wheeler inverse transform, and a zero compensation inverse transform.
+\vspace*{-.4cm}
+\subsection {Zero Compensation}
+Since our Burrows Wheeler transform relies on there being a unique end of string character which is lexicographically smallest, we must remove any zeroes from the input. We first swap 0 with 247 on the basis that 247 will occur less in most data. We then replace any zeroes with two bytes 246 102 and any 246's with 246 101. This, in practice, does not appear to have any effect on compression ratio.
+\vspace*{-.4cm}
+\subsection{Burrows Wheeler Transform}
+The Burrows Wheeler transform \cite{Burrows94ablock-sorting} is a reversible transformation on a string terminated by a unique lexicographically smallest character (henceforth called EOS). It is useful because if there are a lot of repeated substrings in the input, there will be a lot of repeated characters next to each other in the transformed string.
+
+To compute the Burrows Transform of a string, take every rotation of it, then sort those rotations, to form a matrix of strings. Take the last character of each rotation in order (the last column of the matrix), and create a new string. This is the transformed string. We can see that we will get a lot of runs of characters because any repeated substrings will end up next to each other in the rotations as a prefix of those strings, and the suffixes of those repeated substrings will also end up as prefixes of strings next to each other. So, the characters before them in the original string, which are the same, end up in the last column of the matrix and hence in the transformed string, next to each other.
+
+To compute the inverse transform, we take the transformed string and sort it. We know this must be the first 'column' of the original matrix, since the transformed string must contain exactly the collection of characters as the original string, and the first column of the matrix must be sorted. We then make the observation that by placing the transformed string in a column before the sorted string we get every two character prefix of the rows of the original matrix, and sorting those, we have the first two columns of the original matrix. By continually placing the transformed string in a column before our current matrix and sorting the rows, we can build up the original matrix. We then take the row which ends in the EOS character as our original string.
+
+Ostensibly we require $O(N^2 \log{N})$ time and $O(N^2)$ memory for the forward transform, and $O(N^3 \log{N})$ time and $O(N^2)$ memory for the inverse transform. However, we don't need to explicitly compute the whole matrix, and we can do both in linear time. To do the forward transform in linear time, we first compute the suffix array of the string in linear time. Since the string is terminated by a unique lexicographically smallest character, the order of the suffixes will be the same as the order of the rotations after we sort them, so we can compute the transformed string by scanning the suffix array in linear time.
+
+To compute the inverse transform in linear time, we observe that we're only interested in the row which ends in the EOS character, and only keep track of that. If we know the position of that row in our current matrix, we can compute the next position of it after prepending the transformed string column by observing that all rows that now start with a character less than our starting character definitely go before us, and only the rows which are before us already which have the same starting character go before us, since the rows are already sorted. Thus inductively we keep everything sorted, and we are able to find the next position of the row.
+
+The algorithm we use for computing the suffix array in linear time is through a method called induced sorting \cite{5582081}. Say our input is a EOS terminated string $S$ and define the suffix $S_i = S[i:]$ as S-type iff $S_i < S_{i+1}$ or $S_i$ is the EOS character. We then define a character $S[i]$ as an LMS character if $S_{i-1}$ is L-type and $S_i$ is S-type. A LMS substring is defined as a substring $S_{ij}$ where $i \neq j$, $S[i]$ and $S[j]$ are LMS characters, and there are no other LMS characters between $i$ and $j$ in the string. The EOS character is also defined to be an LMS substring. We then observe that these LMS substrings cannot overlap, and there are at most $|S|/2$ of them, since they must be at least 3 characters long (except for EOS). We then sort the LMS substrings and assign an index lexicographically to each LMS substring (where an LMS substring is equal to another if they are the same length, have the same characters, and the characters are the same type). Then, create the string $S_1$ which contains the index of each LMS substring in the order the LMS substrings were in $S$. Observe that the order of two suffixes in $S_1$ will be the same as the order of the corresponding suffixes in $S$, so if we can compute the suffix array of $S_1$ we have an ordering of the LMS suffixes. We can then use those LMS suffixes to induce a sorting of every suffix.
+
+The induced sorting works by noting that from the sorted LMS suffixes, we can induce a sorting of all the L-type suffixes. From the sorted L-type suffixes, we can induce a sorting of the S-type suffixes. We induced sort the L-type suffixes by first creating our suffix array $SA$. Then, we divide the suffix array in buckets based on first characters. We further subdivide those buckets into L type buckets and S type buckets, on the basis that within a particular character bucket all L-type suffixes will precede the S type suffixes. We place the sorted LMS suffixes into their appropriate buckets in $SA$, then scan from left to right. If we see a suffix in $SA$, we look at the suffix in $S$ one larger than it (the one to the left of it). If it is an L-type suffix, we place it in its L-type bucket. Inductively we can see that this will keep $SA$ sorted, since any later L-type suffixes we place in the same bucket must end with a lexicographically greater suffix, or we would have placed it in earlier. We apply essentially the same algorithm to induce a sorting of the S-type suffixes, except we first delete the LMS suffixes from $SA$, and we scan from right to left, since since we're looking at S-type suffixes this time, we will be placing them in buckets lexicographically smaller than the one we are currently traversing. We also want to look the S-type suffixes we discover later in our traversal in case it has a S-type suffix in $S$ before it, which we need to look at, otherwise we might miss some S-type suffixes.
+
+We also use this method of induced sorting to sort the LMS substrings (which we use to name each LMS substring for building $S_1$). In this case, it works exactly the same, but we don't put in the LMS suffixes sorted. We instead think of them as single characters (which will trivially be sorted when we place them into the buckets). The induce function then sorts the substrings that end in these LMS characters. When we scan from left to right and induced sort the L-type substrings, we will then have all the substrings that contain some number of L-type characters then an LMS character (i.e. they will look like the regex $L^*S$). On the final right to left scan which induced sorts the S-type substrings, we extend all those substrings, and we end up with all substrings of the form $S^*L^*S$. Since an LMS substring, by definition, cannot have any LMS characters in it, except at the start and the end, it looks like the regex $S^*L^*S$. So, we then can extract the LMS substrings out of these sorted substrings.
+
+This whole procedure runs in linear time on the size of the string. This is because the induced sorting procedure takes linear time, and the recursive call is called with a string which is at most half the size. 
+\subsubsection{Transform and inverse transform}
+\begin{algorithm}[H]
+\caption{Performs a Burrows Wheeler transform.}
+\begin{algorithmic}[1]
+\Function{BurrowsWheelerTransform}{$S$}
+\State $S' \gets \lambda$
+\State $N \gets $ length of $S$
+\State $suf \gets \Call{sais}{S}$
+\For{$i \gets [0, N)$}
+\State append $S[(suf[i]-1+N)\% N]$ to $S'$
+\EndFor
+\State \Return $S'$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+\begin{algorithm}[H]
+\caption{Reverses a Burrows Wheeler transform.}
+\begin{algorithmic}[1]
+\Function{BurrowsWheelerInverseTransform}{$S$}
+\State $S' \gets \lambda$
+\State $N \gets $ length of $S$
+\State compute numBefore$[i]$ as the number of characters in $S$ less than $i$
+\State compute numSameBefore$[i]$ as the number of characters in $S[:i]$ equal to $i$
+\State $cur \gets$ 0
+\For{$i \gets [0, N)$}
+\State prepend $S[cur]$ to $S'$
+\State $cur \gets $numBefore$[S[cur]] + $numSameBefore$[cur]$
+\EndFor
+\State \Return $S'$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+\subsubsection{Linear Time Suffix Array Construction by Almost Pure Induced Sorting}
+\begin{algorithm}[H]
+\caption{Constructs a suffix array of a string S. It is assumed S contains exactly one zero which is at the end.}
+\begin{algorithmic}[1]
+\Function{sais}{$S$}
+\State $N \gets $ length of $S$
+\If{$N = 1$}
+\State \Return $[0]$
+\EndIf
+\State compute $S[i]$ as $S$ type and $t[i]$ true iff $S[i:] < S[i+1:]$
+\State compute $lms$ as all $i$'s that satisfy $\NOT t[i-1] \AND t[i]$
+\State $substr \gets \Call{induce}{S, lms}$
+\State use $substr$ to name every LMS substring in order.
+\State compute $S_1[i]$ as the name of $lms[i]$
+\State $SA_1 \gets \Call{sais}{S_1}$
+\State compute $lmsSorted[i]$ as $lms[SA_1[i]]$ 
+\State \Return $\Call{induce}{S, lmsSorted}$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+\vspace*{-.8cm}
+\begin{algorithm}[H]
+\caption{Induces a sorting of suffixes or LMS substrings from sorted LMS suffixes or sorted LMS characters, respectively.}
+\begin{algorithmic}[1]
+\Function{induce}{$S, lms$}
+\State $ind$ $\gets$ array of -1's
+\State divide $ind$ into sequential buckets of first character
+\State subdivide those buckets into L and S type buckets
+\State place all elements of $lms$ into the S type buckets for their starting character
+\ForAll{non -1 elements of $ind$, $i$}
+\If{the suffix at $S[i-1]$ is L-type}
+\State put it in its L-type bucket in $ind$
+\EndIf
+\EndFor
+\State clear the S-type buckets
+\ForAll{non -1 elements of $ind$, $i$, in reverse order}
+\If{the suffix at $S[i-1]$ is S-type}
+\State put it in its S-type bucket in $ind$
+\EndIf
+\EndFor
+\State \Return $ind$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+\subsection{Move To Front Transform}
+The move to front transform \cite{Bentley:1986:LAD:5684.5688} keeps a buffer of the most recently used characters, and when it transforms a character, it replaces it with the index of that character in its buffer, and moves that character to the front of its buffer. The inverse transform works very similarly, reading in an index, outputting the character at that index in its buffer, then moving that character to the front of its buffer.
+
+The move to front transform works well when there are many of the same characters in a row, and when there are many of the same characters in some local area of the file. This makes it very good for applying after the Burrows Wheeler transform. We end up getting a file containing lots of small numbers, and mostly zeroes.
+\subsection{Huffman coding}
+\subsubsection{Explanation}
+Huffman coding \cite{4051119} is a method which assigns new representations to characters in a string. By assigning shorter representations to characters that occur more often, we are able to compress the file. We've just finished applying a move-to-front transform and we have a input string with a lot of zeroes and other low values, so by assigning shorter representations to, say, zero, we should be able to compress the file by a great deal.
+
+NoGGNoSkill performs a 2-pass Huffman over 20 MB blocks. It makes use of properties of the canonical Huffman coding \cite{Schwartz:1964:GCP:363958.363991} to efficiently encode the Huffman tree as header information before the main compressed block. The header is also further compressed using a Huffman tree generated from a static frequency table.
+
+The canonical Huffman coding is based off the observation that to maintain the same compression ratio all we need to keep the same about the representations of the symbols is the number of bits used. So, if we have an algorithm which, given the bit lengths of some number of symbols, will return representations for each of those, where each symbol with the same length representation is assigned the representations in lexicographical order, all we need to do to store the Huffman tree is output the lengths of the representations.
+\subsubsection{Tree and representation generation}
+\begin{algorithm}[H]
+\caption{Generates a Huffman tree for a specified frequency table.}
+\begin{algorithmic}[1]
+\Function{GenerateHuffmanTree}{$F$}
+\State $P \gets $ set of nodes $(i, F[i], None, None)$
+\While{$P$ has more than one element}
+\State select the two lowest frequency pairs $A$ and $B$
+\State remove $A$ and $B$ from $P$
+\State add $(None, A[1]+B[1], A, B)$ to $P$
+\EndWhile
+\State \Return the node in $P$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+\begin{algorithm}[H]
+\caption{Generates a map from characters to binary representations for a given Huffman tree.}
+\begin{algorithmic}[1]
+\Function{GenerateMap}{$node,map$}
+\If{$node$ is not a leaf node}
+\State $map[$node.zero$] = map[$node$] + "0"$
+\State $map[$node.one$] = map[$node$]+"1"$
+\State \Call{GenerateMap}{$node.zero$, $map$}
+\State \Call{GenerateMap}{$node.one$, $map$}
+\Else
+\State $map[$node.symbol$] = map[$node$]$
+\EndIf
+\State \Return $map$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+\vspace*{-.4cm}
+\subsubsection{Encoding and decoding}
+\vspace*{-.4cm}
+\begin{algorithm}[H]
+\caption{Performs Huffman encoding.}
+\begin{algorithmic}[1]
+\Function{HuffmanEncoding}{$S$}
+\State $S' \gets \lambda$
+\State compute the frequency table $F$ of $S$
+\State $T \gets \Call{GenerateHuffmanTree}{F}$
+\State $rep \gets \Call{GenerateMap}{T, \br{}}$
+\State $\Call{WriteTree}{S', T}$
+\ForAll{character $c$ of $S$}
+\State append $rep[c]$ to $S'$
+\EndFor
+\State \Return $S'$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+\vspace*{-.8cm}
+\begin{algorithm}[H]
+\caption{Performs Huffman decoding.}
+\begin{algorithmic}[1]
+\Function{HuffmanDecoding}{$S$}
+\State $S' \gets \lambda$
+\State $T \gets \Call{ReadTree}{S}$
+\State cur $\gets T$
+\ForAll{bits $b$ remaining in $S$}
+\If{cur is a leaf node}
+\State append cur.symbol to $S'$
+\State cur $\gets T$
+\EndIf
+\State set cur to the appropriate child depending on $b$
+\EndFor
+\State \Return $S'$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+\section {Implementation}
+\vspace*{-.4cm}
+NoGGNoSkill consists of a main class which puts a number of component compression or transformation algorithms together, and handles getting data between them. Each component has a method for compression and decompression, and it is the responsibility of the main class to ensure each of these methods is called with the appropriate data and invariants.
+
+The BWT implementation specifically consists of two public and two private member functions. The public function \texttt{transform} takes an input array of integers and the size of that array, and returns the transformed string as an array of integers. The reason for using integers is that in some places in NoGGNoSkill symbols greater than 255 are used, which we would have to use an integer array for, so this way we don't have to do any conversions between array types. The size is passed in for similar reasons: NoGGNoSkill allocates a fixed size array of a specific block size, and if the input doesn't completely fill it, by passing the size we avoid a copy into a smaller array. Alternatively, we could use Java collections, if it didn't make it more than three times slower. The function \texttt{sais} takes an array of integers and a size, and returns an array containing the suffix array, calling \texttt{induce} twice. The private function \text{induce} takes a bunch of arguments, and returns an array of the suffixes of $s$ induced sorted using the array $lms$. Finally, the public function \texttt{inverseTransform} takes an array of integers and a array size, and returns the inverse transformed string as an array of integers from the input.
+\subsection{Implementation issues}
+Due to memory constraints, we cannot hold the entire input in memory. We also want an online implementation so we can compress streams we can only read once. So, we read the file in fixed sized blocks. This leads to a number of difficulties in implementation. Our BWT works on these sized blocks, however, when we are decompressing, we read in a block of this size, which is decompressed into something probably larger, but potentially smaller by our Huffman code. This necessitates a buffer in-between Huffman decoding and the rest of the inverse transforms. There is also a buffer in between zero compensation and BWT in the compression function, since the zero compensation changes the size of the data.
+
+Another large problem caused by this block splitting is that we aren't guaranteed to receive a whole Huffman block or even a header in one call to our Huffman decompression function. This means that our Huffman decoder must maintain state about where it is up to. The easiest way to do this turned out to be using a finite state machine like construction.
+\end{multicols}
+\vspace*{-1.0cm}
+\section {Analysis}
+\vspace*{-.4cm}
+NoGGNoSkill compression takes $O(NK +NK/B_h\log{K})$ time and $O(K+B_h+B)$ memory, where $N$ is the size of the input, $K$ is the size of the alphabet, $B_h$ is the Huffman block size, and $B$ is the block size. Decompression takes $O(N + NK + NK^2/B _h+ NK/B_h\log{K})$ time and $O(K+B)$ memory. In use, $K$, $B_h$, and $B$ are constant, so overall compression is $O(N)$, using $O(1)$ memory, and decompression is also $O(N)$ using $O(1)$ memory.
+
+Of most interest is the analysis of the Burrows Wheeler implementation. The \texttt{sais} function does a lot of linear scans, calls \texttt{induce}, and itself with a smaller piece of data. The \texttt{induce} function performs only linear scans over its input and the alphabet, so it is $O(N+K)$ in time and auxiliary memory. The only nested loop in \texttt{sais} ostensibly appears to have quadratic time, however, the inner loop will only look at each character in the input a constant number of times over the course of the outer loop, so it runs in linear time too. When \texttt{sais} calls itself, from the properties of the algorithm, it must call it with data at most half the size of the input. Hence, the whole function runs in $O(N+K)$ time with $O(N+K)$ memory. The \texttt{transform} function calls the \texttt{sais} function, and then linearly iterates through the resultant suffix array to generate the transformed string, so it is $O(N+K)$ in time and memory.
+
+The inverse transform is also $O(N+K)$ in time and auxiliary memory. It no nested loops, only linear scans over the input and the alphabet. 
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\phantom{A} & Time & Auxiliary Memory \\
+\hline
+\texttt{NoGGNoSkill.compress} & $O(NK +NK/B_h\log{K})$  & $O(K + B_h + B)$ \\
+\hline
+\texttt{NoGGNoSkill.decompress} & $O(N + NK + NK^2/B _h+ NK/B_h\log{K})$  & $O(K+B)$ \\
+\hline
+\texttt{HuffmanComponent.HuffmanCoder.compressAndWrite} & $O(N)$ & $O(1)$ \\
+\hline
+\texttt{HuffmanComponent.HuffmanCoder.decompress} & $O(1)$ & $O(1)$ \\
+\hline
+\texttt{HuffmanComponent.compressAndWrite} & $O(N + NK/B_h\log{K})$ & $O(K+B_h)$ \\
+\hline
+\texttt{HuffmanComponent.compressAndWriteInternal} & $O(N + K\log{K})$ & $O(K)$ \\
+\hline
+\texttt{HuffmanComponent.decompressAndAppend} & $O(N + N/B_h(K^2 + K\log{K}))$ & $O(K)$ \\
+\hline
+\texttt{HuffmanComponent.generateCanonicalRep} & $O(K\log{K})$ & $O(K)$ \\
+\hline
+\texttt{HuffmanNode.generateRep} & $O(K)$ & $O(K)$ \\
+\hline
+\texttt{HuffmanNode.generateRepInternal} & $O(K)$ & $O(1)$ \\
+\hline
+\texttt{HuffmanNode.generateTree(freq)} & $O(K\log{K})$ & $O(K)$ \\
+\hline
+\texttt{HuffmanNode.generateTree(rep)} & $O(K^2)$ & $O(1)$ \\
+\hline
+\texttt{BWTComponent.induce} & $O(N + K)$ & $O(N+K)$ \\
+\hline
+\texttt{BWTComponent.inverseTransform} & $O(N+K)$ & $O(N+K)$ \\
+\hline
+\texttt{BWTComponent.transform} & $O(N+K)$ & $O(N+K)$ \\
+\hline
+\texttt{BWTComponent.sais} & $O(N+K)$ & $O(N+K)$ \\
+\hline
+\texttt{MTFComponent.inverseTransform} & $O(NK)$ & $O(N)$ \\
+\hline
+\texttt{MTFComponent.transform} & $O(NK)$ & $O(N)$ \\
+\hline
+\texttt{ZeroComponent.inverseTransform} & $O(N)$ & $O(N)$ \\
+\hline
+\texttt{ZeroComponent.transformAndAppend} & $O(N)$ & $O(1)$ \\
+\hline
+\end{tabular}
+\caption{Time complexity of non trivial methods in NoGGNoSkill implementation}
+\label{tb:time}
+\end{table}
+\FloatBarrier
+\section {Empirical results}
+NoGGNoSkill was tested against the gzip, bzip2, lzma, 7zip, and zip programs, on eight types of data sets. They consisted of pdfs, .class files, large English text files ($\approx$ 10 MB), small English text files ($\approx$ 60 KB), English literature (varying, 500 KB to 4 MB), the Webster's English dictionary ($\approx$ 40 MB), tiny English text (less than 1000 B), and non text data (consisting of the Mozilla Firefox binary distribution tarball, a uncompressed MRI image file, a database, and a .wav file). In general NoGGNoSkill performed better than gzip and zip, and slightly worse than bzip2. In terms of speed, NoGGNoSkill processes data on my computer at about 1.6 MB/s, ignoring start up time, and decompresses at about 0.5 MB/s. Overall, this makes it about 10 times slower than most compression programs. This is fairly expected and isn't too bad, since we have the JVM start-up time, the fact that it's in Java, and that commonly used compression programs have had years to be optimised.
+
+Looking at the compression speeds for the smaller and larger data, it appears that the execution of the algorithm takes sublinear time, however, this is due to the JVM start up time and set up time. Taking this into account, this data agrees with the theoretical analysis: that this program runs in linear time on the size of the input. 
+
+\begin{table}[!h]
+\centering
+\begin{tabular}{| l | l | l | l | l | l | l | l | l | l |}
+\hline
+\textbf{Ratio} & \textbf{PDFs} & \textbf{Large} & \textbf{Small} & \textbf{Literature} & \textbf{Webster} & \textbf{Tiny} & \textbf{Non-text} & \textbf{.class} & \textbf{All data} \\
+\hline
+\textbf{NoGGNoSkill} & 90.31 & 29.41 & 40.71 & 30.25 & 24.38 & 295.9 & 55.39 & 56.44 & 55.40 \\
+\hline
+\textbf{gzip -9} & 85.53 & 38.11 & 42.06 & 36.03 & 29.09 & 247.4 & 55.95 & 55.80 & 55.61 \\
+\hline
+\textbf{bzip2 -9} & 85.96 & 28.71 & 38.08 & 26.77 & 20.85 & 319.8 & 49.58 & 58.50 & 54.53 \\
+\hline
+\textbf{lzma -9} & 84.50 & 26.74 & 39.49 & 29.30 & 20.22 & 225.2 & 44.99 & 48.42 & 48.76 \\
+\hline
+\textbf{7zip} & 84.61 & 26.76 & 39.69 & 29.37 & 21.22 & 750.7 & 45.08 & 51.37 & 71.64 \\
+\hline
+\textbf{zip} & 85.72 & 38.28 & 42.64 & 36.26 & 29.43 & 1430 & 56.06 & 63.70 & 107.42 \\
+\hline
+\end{tabular}
+\caption{Average ratio for data sets in percent -- Lower is better}
+\label{tb:average_ratio}
+\end{table}
+
+\begin{table}[!h]
+\centering
+\begin{tabular}{| l | l | l | l | l | l | l | l | l | l |}
+\hline
+\textbf{Compression} & \textbf{PDFs} & \textbf{Large} & \textbf{Small} & \textbf{Literature} & \textbf{Webster} & \textbf{Tiny} & \textbf{Non-text} & \textbf{.class} & \textbf{All data} \\
+\hline
+\textbf{NoGGNoSkill} & 0.612 & 1.273 & 0.178 & 1.202 & 1.505 & 0.002 & 1.102 & 0.023 & 0.592 \\
+\hline
+\textbf{gzip -9} & 20.76 & 10.57 & 7.995 & 10.43 & 14.78 & 0.148 & 14.03 & 1.815 & 8.982 \\
+\hline
+\textbf{bzip2 -9} & 6.176 & 8.937 & 5.834 & 8.754 & 8.529 & 0.172 & 9.200 & 1.293 & 5.800 \\
+\hline
+\textbf{lzma -9} & 1.798 & 1.028 & 0.675 & 1.429 & 0.865 & 0.007 & 1.825 & 0.087 & 0.883 \\
+\hline
+\textbf{7zip} & 3.208 & 1.619 & 0.979 & 2.444 & 1.606 & 0.010 & 3.475 & 0.134 & 1.620 \\
+\hline
+\textbf{zip} & 21.84 & 13.14 & 7.682 & 13.25 & 20.91 & 0.118 & 18.92 & 1.484 & 10.23 \\
+\hline
+\end{tabular}
+\caption{Average compression speed for data sets in MB/s -- Higher is better}
+\label{tb:average_compression}
+\end{table}
+
+\begin{table}[!h]
+\centering
+\begin{tabular}{| l | l | l | l | l | l | l | l | l | l |}
+\hline
+\textbf{Decompression} & \textbf{PDFs} & \textbf{Large} & \textbf{Small} & \textbf{Literature} & \textbf{Webster} & \textbf{Tiny} & \textbf{Non-text} & \textbf{.class} & \textbf{All data} \\
+\hline
+\textbf{NoGGNoSkill} & 0.612 & 0.639 & 0.078 & 0.469 & 0.539 & 0.001 & 0.874 & 0.014 & 0.296 \\
+\hline
+\textbf{gzip -9} & 45.46 & 35.92 & 6.299 & 27.45 & 34.01 & 0.033 & 50.76 & 1.162 & 20.44 \\
+\hline
+\textbf{bzip2 -9} & 9.995 & 4.372 & 3.988 & 3.886 & 3.755 & 0.038 & 6.325 & 1.209 & 3.777 \\
+\hline
+\textbf{lzma -9} & 9.751 & 12.14 & 4.562 & 10.79 & 10.55 & 0.025 & 10.41 & 0.802 & 6.673 \\
+\hline
+\textbf{7zip} & 9.922 & 14.65 & 3.210 & 11.54 & 14.48 & 0.036 & 12.33 & 0.455 & 6.979 \\
+\hline
+\textbf{zip} & 38.59 & 37.19 & 5.627 & 26.57 & 32.41 & 0.097 & 51.82 & 0.830 & 19.28 \\
+\hline
+\end{tabular}
+\caption{Average decompression speed for data sets in MB/s -- Higher is better}
+\label{tb:average_decompression}
+\end{table}
+\FloatBarrier
+\bibliographystyle{IEEEtran}
+\bibliography{IEEEabrv,bib}
+
+\end{document}

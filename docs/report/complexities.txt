@@ -1,0 +1,30 @@
+NoGGNoSkill.compress O(NK + NK/B log K) aux O(K + HB + B)
+NK from MTF transform
+NK/B log K from Huffman
+
+NoGGNoSkill.decompress O(N + NK + NK^2/B + NK/B log K) aux O(K + B)
+N from reading
+NK from MTF inverse 
+NK^2/B  + NK log K from Huffman
+	K^2 from generating the tree from canonical rep
+	NK/B log K from generating the canonical representation
+HuffmanComponent.HuffmanCoder.compressAndWrite O(N) aux O(1)
+HuffmanComponent.HuffmanCoder.decompress O(1) aux O(1)
+HuffmanComponent.compressAndWrite O(N + K log K)aux O(K + HB)
+HuffmanComponent.compressAndWriteInternal O(N + K log K) aux O(K)
+HuffmanComponent.decompressAndAppend O(N + K^2 + K log K) aux O(K)
+HuffmanComponent.generateCanonicalRep O(K log K) aux O(K)
+HuffmanNode.generateRep O(K) and aux O(K)
+HuffmanNode.generateRepInternal O(K) aux O(1)
+HuffmanNode.generateTree(freq) O(K log K) aux O(K)
+HuffmanNode.generateTree(rep) O(K^2) aux O(1)
+BWTComponent.induce O(N + K) aux O(N+K)
+BWTComponent.inverseTransform O(N+K) O(N+K)
+BWTComponent.transform O(N+K) aux O(N+K) since calls sais
+BWTComponent.sais O(N+K) aux O(N+K)
+MTFComponent.inverseTransform O(NK) aux O(N)
+MTFComponent.transform O(NK) aux O(N)
+ZeroComponent.inverseTransform O(N) aux O(N)
+ZeroComponent.transformAndAppend O(N) aux O(1)
+
+
